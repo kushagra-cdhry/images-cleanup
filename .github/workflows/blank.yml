@@ -2,8 +2,8 @@ name: Delete Old ECR Images
 
 on:
   schedule:
-    - cron: '0 0 * * 0' # Every Sunday at midnight UTC
-  workflow_dispatch:
+    - cron: '0 0 * * 0' # This will run every Sunday at midnight UTC
+  workflow_dispatch: # Allow manual triggering
 
 jobs:
   delete-old-images:
@@ -22,11 +22,11 @@ jobs:
           echo "Fetching images from ECR..."
           images=$(aws ecr list-images --repository-name ${ECR_REPOSITORY_URI##*/} --query 'imageIds[*].imageTag' --output text | tr '\t' '\n')
           echo "Images fetched: $images"
-          echo "::set-output name=images::$images"
+          echo "images=$images" >> $GITHUB_ENV
 
       - name: Delete Old Images
         run: |
-          images=(${ { steps.list_images.outputs.images } })
+          IFS=' ' read -r -a images <<< "$images"
           num_images=${#images[@]}
           keep=4
 
