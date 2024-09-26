@@ -9,9 +9,6 @@ jobs:
   delete-old-images:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v2
-
       - name: Set up AWS CLI
         uses: aws-actions/configure-aws-credentials@v1
         with:
@@ -24,28 +21,36 @@ jobs:
         run: |
           echo "Fetching repositories from ECR..."
           repositories=$(aws ecr describe-repositories --query 'repositories[*].repositoryName' --output text)
-          echo "Repositories fetched: $repositories"
-          echo "repositories=$repositories" >> $GITHUB_ENV  # Set the repositories in an environment variable
+          echo "$repositories" > repositories.txt
 
-      - name: Delete Old Images from Each Repository
+      - name: Delete Old Images
         run: |
-          repositories=($repositories)  # Use the environment variable set above
-          keep=5
+          # Read repositories from the file
+          repositories=$(<repositories.txt)
+          keep=4
 
-          for repo in "${repositories[@]}"; do
-              echo "Fetching images for repository: $repo"
-              images=$(aws ecr list-images --repository-name "$repo" --query 'imageIds[*].imageTag' --output text)
-              images_array=($images)
-              num_images=${#images_array[@]}
-              
-              if (( num_images > keep )); then
+          for repo in $repositories; do
+              echo "Processing repository: $repo"
+              images=$(aws ecr describe-images --repository-name $repo --query 'imageDetails[*].[imageTags[0], imagePushedAt]' --output text | sort -k2 -r)
+              echo "Images fetched for $repo: $images"
+
+              # Create an array to hold image tags and their push dates
+              declare -A image_dates
+              while read -r tag pushed_at; do
+                  image_dates["$tag"]="$pushed_at"
+              done <<< "$images"
+
+              # Get the tags sorted by push date
+              sorted_tags=($(for tag in "${!image_dates[@]}"; do echo "$tag ${image_dates[$tag]}"; done | sort -k2 -r | awk '{print $1}'))
+
+              if (( ${#sorted_tags[@]} > keep )); then
                   echo "Deleting old images from $repo..."
-                  images_to_delete=(${images_array[@]:keep})
+                  images_to_delete=("${sorted_tags[@]:keep}")
                   for image in "${images_to_delete[@]}"; do
                       echo "Deleting image: $image from $repo"
-                      aws ecr batch-delete-image --repository-name "$repo" --image-ids imageTag="$image"
+                      aws ecr batch-delete-image --repository-name $repo --image-ids imageTag=$image
                   done
               else
-                  echo "No images to delete in $repo. Keeping all $num_images images."
+                  echo "No images to delete in $repo. Keeping all ${#sorted_tags[@]} images."
               fi
           done
