@@ -1,0 +1,72 @@
+name: Delete Old Artifact Registry Images
+
+#GCP_SA_KEY
+#GCP_PROJECT_ID
+
+on:
+  schedule:
+    - cron: '0 0 * * 0' # This will run every Sunday at midnight UTC
+  workflow_dispatch:
+
+jobs:
+  delete-old-images:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Set up Google Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+        with:
+          service_account_key: ${{ secrets.GCP_SA_KEY }}
+          project_id: ${{ secrets.GCP_PROJECT_ID }}
+          export_default_credentials: true
+
+      - name: List Artifact Repositories
+        id: list_repositories
+        run: |
+          echo "Fetching repositories from Artifact Registry..."
+          repositories=$(gcloud artifacts repositories list --format='value(name)')
+          echo "$repositories" > repositories.txt
+          echo "Repositories fetched: $repositories"
+
+      - name: Delete Old Images
+        run: |
+          echo "Reading repositories from the file..."
+          repositories=$(<repositories.txt)
+          keep=5
+          for repo in $repositories; do
+              echo "Processing repository: $repo"
+              images=$(gcloud artifacts docker images list $repo --format='value(tags.lastUpdated,tags.tags)' | sort -k1 -r)
+              echo "Images fetched for $repo: $images"
+
+              if [ -z "$images" ]; then
+                  echo "No images found in $repo. Skipping deletion."
+                  continue
+              fi
+
+              # Create an array to hold image tags and their push dates
+              declare -A image_dates
+              while read -r updated_at tags; do
+                  # Assuming tags is a space-separated list, split it
+                  for tag in $tags; do
+                      image_dates["$tag"]="$updated_at"
+                  done
+              done <<< "$images"
+
+              # Get the tags sorted by push date
+              sorted_tags=($(for tag in "${!image_dates[@]}"; do echo "$tag ${image_dates[$tag]}"; done | sort -k2 -r | awk '{print $1}'))
+              echo "Sorted images for $repo: ${sorted_tags[*]}"
+
+              if (( ${#sorted_tags[@]} > keep )); then
+                  echo "Deleting old images from $repo..."
+                  images_to_delete=("${sorted_tags[@]:keep}")
+                  echo "Images to be deleted: ${images_to_delete[*]}"
+                  for image in "${images_to_delete[@]}"; do
+                      echo "Deleting image: $image from $repo"
+                      gcloud artifacts docker images delete $repo@$image --quiet
+                      echo "Deleted image: $image from $repo successfully."
+                  done
+              else
+                  echo "No images to delete in $repo. Keeping all ${#sorted_tags[@]} images."
+              fi
+          done
+          
+          echo "Old image deletion process completed."
