@@ -30,7 +30,7 @@ jobs:
       - name: Delete Old Images from Each Repository
         run: |
           repositories=($repositories)  # Use the environment variable set above
-          keep=4
+          keep=5
 
           for repo in "${repositories[@]}"; do
               echo "Fetching images for repository: $repo"
