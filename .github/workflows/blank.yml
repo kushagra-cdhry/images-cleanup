@@ -9,9 +9,6 @@ jobs:
   delete-old-images:
     runs-on: ubuntu-latest
     steps:
-      - name: Set Repository URI
-        run: echo "ECR_REPOSITORY_URI=992382854711.dkr.ecr.eu-north-1.amazonaws.com/dummy-images-repo" >> $GITHUB_ENV
-
       - name: Checkout code
         uses: actions/checkout@v2
 
@@ -22,27 +19,33 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ secrets.AWS_REGION }}
 
-      - name: List ECR Images
-        id: list_images
+      - name: List ECR Repositories
+        id: list_repositories
         run: |
-          echo "Fetching images from ECR..."
-          images=$(aws ecr list-images --repository-name ${ECR_REPOSITORY_URI##*/} --query 'imageIds[*].imageTag' --output text | tr '\t' '\n')
-          echo "Images fetched: $images"
-          echo "images=$images" >> $GITHUB_ENV
+          echo "Fetching repositories from ECR..."
+          repositories=$(aws ecr describe-repositories --query 'repositories[*].repositoryName' --output text)
+          echo "Repositories fetched: $repositories"
+          echo "::set-output name=repositories::$repositories"
 
-      - name: Delete Old Images
+      - name: Delete Old Images from Each Repository
         run: |
-          images=(${{ env.images }})
-          num_images=${#images[@]}
+          repositories=(${ { steps.list_repositories.outputs.repositories } })
           keep=4
 
-          if (( num_images > keep )); then
-              echo "Deleting old images..."
-              images_to_delete=(${images[@]:keep})
-              for image in "${images_to_delete[@]}"; do
-                  echo "Deleting image: $image"
-                  aws ecr batch-delete-image --repository-name ${ECR_REPOSITORY_URI##*/} --image-ids imageTag=$image
-              done
-          else
-              echo "No images to delete. Keeping all $num_images images."
-          fi
+          for repo in "${repositories[@]}"; do
+              echo "Fetching images for repository: $repo"
+              images=$(aws ecr list-images --repository-name "$repo" --query 'imageIds[*].imageTag' --output text)
+              images_array=($images)
+              num_images=${#images_array[@]}
+              
+              if (( num_images > keep )); then
+                  echo "Deleting old images from $repo..."
+                  images_to_delete=(${images_array[@]:keep})
+                  for image in "${images_to_delete[@]}"; do
+                      echo "Deleting image: $image from $repo"
+                      aws ecr batch-delete-image --repository-name "$repo" --image-ids imageTag="$image"
+                  done
+              else
+                  echo "No images to delete in $repo. Keeping all $num_images images."
+              fi
+          done
