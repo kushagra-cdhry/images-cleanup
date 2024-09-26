@@ -22,17 +22,22 @@ jobs:
           echo "Fetching repositories from ECR..."
           repositories=$(aws ecr describe-repositories --query 'repositories[*].repositoryName' --output text)
           echo "$repositories" > repositories.txt
+          echo "Repositories fetched: $repositories"
 
       - name: Delete Old Images
         run: |
-          # Read repositories from the file
+          echo "Reading repositories from the file..."
           repositories=$(<repositories.txt)
-          keep=4
-
+          keep=5
           for repo in $repositories; do
               echo "Processing repository: $repo"
               images=$(aws ecr describe-images --repository-name $repo --query 'imageDetails[*].[imageTags[0], imagePushedAt]' --output text | sort -k2 -r)
               echo "Images fetched for $repo: $images"
+
+              if [ -z "$images" ]; then
+                  echo "No images found in $repo. Skipping deletion."
+                  continue
+              fi
 
               # Create an array to hold image tags and their push dates
               declare -A image_dates
@@ -42,13 +47,16 @@ jobs:
 
               # Get the tags sorted by push date
               sorted_tags=($(for tag in "${!image_dates[@]}"; do echo "$tag ${image_dates[$tag]}"; done | sort -k2 -r | awk '{print $1}'))
+              echo "Sorted images for $repo: ${sorted_tags[*]}"
 
               if (( ${#sorted_tags[@]} > keep )); then
                   echo "Deleting old images from $repo..."
                   images_to_delete=("${sorted_tags[@]:keep}")
+                  echo "Images to be deleted: ${images_to_delete[*]}"
                   for image in "${images_to_delete[@]}"; do
                       echo "Deleting image: $image from $repo"
                       aws ecr batch-delete-image --repository-name $repo --image-ids imageTag=$image
+                      echo "Deleted image: $image from $repo successfully."
                   done
               else
                   echo "No images to delete in $repo. Keeping all ${#sorted_tags[@]} images."
