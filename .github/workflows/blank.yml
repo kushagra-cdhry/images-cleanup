@@ -3,7 +3,7 @@ name: Delete Old ECR Images
 on:
   schedule:
     - cron: '0 0 * * 0' # This will run every Sunday at midnight UTC
-  workflow_dispatch:
+  workflow_dispath:
 
 jobs:
   delete-old-images:
@@ -25,11 +25,11 @@ jobs:
           echo "Fetching repositories from ECR..."
           repositories=$(aws ecr describe-repositories --query 'repositories[*].repositoryName' --output text)
           echo "Repositories fetched: $repositories"
-          echo "::set-output name=repositories::$repositories"
+          echo "repositories=$repositories" >> $GITHUB_ENV  # Set the repositories in an environment variable
 
       - name: Delete Old Images from Each Repository
         run: |
-          repositories=(${ { steps.list_repositories.outputs.repositories } })
+          repositories=($repositories)  # Use the environment variable set above
           keep=4
 
           for repo in "${repositories[@]}"; do
