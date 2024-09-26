@@ -3,12 +3,17 @@ name: Delete Old ECR Images
 on:
   schedule:
     - cron: '0 0 * * 0' # This will run every Sunday at midnight UTC
-  workflow_dispatch: # Allow manual triggering
 
 jobs:
   delete-old-images:
     runs-on: ubuntu-latest
     steps:
+      - name: Set Repository URI
+        run: echo "ECR_REPOSITORY_URI=992382854711.dkr.ecr.eu-north-1.amazonaws.com/dummy-images-repo" >> $GITHUB_ENV
+
+      - name: Checkout code
+        uses: actions/checkout@v2
+
       - name: Set up AWS CLI
         uses: aws-actions/configure-aws-credentials@v1
         with:
@@ -26,7 +31,7 @@ jobs:
 
       - name: Delete Old Images
         run: |
-          IFS=' ' read -r -a images <<< "$images"
+          images=(${{ env.images }})
           num_images=${#images[@]}
           keep=4
 
