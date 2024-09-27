@@ -28,7 +28,7 @@ jobs:
         run: |
           echo "Reading repositories from the file..."
           repositories=$(<repositories.txt)
-          keep=5
+          keep=2
           for repo in $repositories; do
               echo "Processing repository: $repo"
               images=$(aws ecr describe-images --repository-name $repo --query 'imageDetails[*].[imageTags[0], imagePushedAt]' --output text | sort -k2 -r)
