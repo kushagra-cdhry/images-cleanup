@@ -28,7 +28,7 @@ jobs:
       - name: Delete Old Images
         run: |
           # Number of images to retain per repository
-          keep=5
+          keep=3
 
           # Read repositories from the file
           echo "Reading repositories from repositories.txt..."
