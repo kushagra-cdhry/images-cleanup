@@ -21,9 +21,10 @@ jobs:
         id: list_repositories
         run: |
           echo "Fetching repositories from ECR..."
-          repositories=$(aws ecr describe-repositories --query 'repositories[*].[repositoryName, createdAt]' --output text | sort -k2)
+          repositories=$(aws ecr describe-repositories --query 'repositories[*].[repositoryName, createdAt]' --output text | sort -k2 | awk '{print $1}')
           echo "$repositories" > repositories.txt
-          echo "Repositories fetched and sorted by creation time: $repositories"
+          echo "Repositories fetched and sorted by creation time:"
+          echo "$repositories"
 
       - name: Delete Old Images
         run: |
