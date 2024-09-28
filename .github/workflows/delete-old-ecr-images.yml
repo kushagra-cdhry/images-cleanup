@@ -21,9 +21,9 @@ jobs:
         id: list_repositories
         run: |
           echo "Fetching repositories from ECR..."
-          repositories=$(aws ecr describe-repositories --query 'repositories[*].repositoryName' --output text)
+          repositories=$(aws ecr describe-repositories --query 'repositories[*].[repositoryName, createdAt]' --output text | sort -k2)
           echo "$repositories" > repositories.txt
-          echo "Repositories fetched: $repositories"
+          echo "Repositories fetched and sorted by creation time: $repositories"
 
       - name: Delete Old Images
         run: |
@@ -35,18 +35,20 @@ jobs:
           repositories=$(<repositories.txt)
 
           for repo in $repositories; do
-              echo "Processing repository: $repo"
+              # Extract repository name from the line
+              repo_name=$(echo "$repo" | awk '{print $1}')
+              echo "Processing repository: $repo_name"
 
               # Fetch image tags and push dates for the repository
-              images=$(aws ecr describe-images --repository-name $repo \
+              images=$(aws ecr describe-images --repository-name $repo_name \
                       --query 'imageDetails[*].[imageTags[0], imagePushedAt]' \
                       --output text | sort -k2 -r)
               
-              echo "Images fetched for $repo: $images"
+              echo "Images fetched for $repo_name: $images"
 
               # Skip if no images are found
               if [ -z "$images" ]; then
-                  echo "No images found in $repo. Skipping."
+                  echo "No images found in $repo_name. Skipping."
                   continue
               fi
 
@@ -64,19 +66,19 @@ jobs:
                                 echo "$tag ${image_dates[$tag]}"; 
                              done | sort -k2 -r | awk '{print $1}'))
               
-              echo "Sorted images for $repo: ${sorted_tags[*]}"
+              echo "Sorted images for $repo_name: ${sorted_tags[*]}"
 
               # Check if we have more images than we need to keep
               if (( ${#sorted_tags[@]} > keep )); then
                   # Find old images to delete
                   images_to_delete=("${sorted_tags[@]:keep}")
-                  echo "Deleting old images from $repo: ${images_to_delete[*]}"
+                  echo "Deleting old images from $repo_name: ${images_to_delete[*]}"
 
                   # Delete each old image
                   for image in "${images_to_delete[@]}"; do
-                      echo "Deleting image: $image from $repo"
-                      aws ecr batch-delete-image --repository-name $repo --image-ids imageTag=$image
-                      echo "Deleted image: $image from $repo"
+                      echo "Deleting image: $image from $repo_name"
+                      aws ecr batch-delete-image --repository-name $repo_name --image-ids imageTag=$image
+                      echo "Deleted image: $image from $repo_name"
                   done
               else
                   echo "No old images to delete. Keeping all ${#sorted_tags[@]} images."
