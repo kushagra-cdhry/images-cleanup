@@ -1,8 +1,5 @@
 name: Delete Old Artifact Registry Images
 
-#GCP_SA_KEY
-#GCP_PROJECT_ID
-
 on:
   schedule:
     - cron: '0 0 * * 0' # This will run every Sunday at midnight UTC
@@ -11,6 +8,7 @@ on:
 jobs:
   delete-old-images:
     runs-on: ubuntu-latest
+
     steps:
       - name: Set up Google Cloud SDK
         uses: google-github-actions/setup-gcloud@v2
@@ -23,17 +21,23 @@ jobs:
         id: list_repositories
         run: |
           echo "Fetching repositories from Artifact Registry..."
-          repositories=$(gcloud artifacts repositories list --format='value(name)')
+          # Fetch repositories with their creation timestamp
+          repositories=$(gcloud artifacts repositories list --format='value(name, createTime)' | sort -k2)
           echo "$repositories" > repositories.txt
-          echo "Repositories fetched: $repositories"
+          echo "Repositories fetched in creation order: $repositories"
 
       - name: Delete Old Images
         run: |
           echo "Reading repositories from the file..."
           repositories=$(<repositories.txt)
           keep=5
-          for repo in $repositories; do
+          
+          for entry in $repositories; do
+              # Split the entry into repository name and creation timestamp
+              repo=$(echo "$entry" | awk '{print $1}')
               echo "Processing repository: $repo"
+
+              # Fetch image tags and their last updated timestamps
               images=$(gcloud artifacts docker images list $repo --format='value(tags.lastUpdated,tags.tags)' | sort -k1 -r)
               echo "Images fetched for $repo: $images"
 
@@ -42,31 +46,35 @@ jobs:
                   continue
               fi
 
-              # Create an array to hold image tags and their push dates
+              # Reset the associative array for each repository
+              unset image_dates
               declare -A image_dates
+
+              # Populate the associative array with image tags and their last updated dates
               while read -r updated_at tags; do
-                  # Assuming tags is a space-separated list, split it
                   for tag in $tags; do
                       image_dates["$tag"]="$updated_at"
                   done
               done <<< "$images"
 
-              # Get the tags sorted by push date
+              # Get the tags sorted by their last updated date
               sorted_tags=($(for tag in "${!image_dates[@]}"; do echo "$tag ${image_dates[$tag]}"; done | sort -k2 -r | awk '{print $1}'))
               echo "Sorted images for $repo: ${sorted_tags[*]}"
 
+              # Check if there are more images than we want to keep
               if (( ${#sorted_tags[@]} > keep )); then
                   echo "Deleting old images from $repo..."
                   images_to_delete=("${sorted_tags[@]:keep}")
                   echo "Images to be deleted: ${images_to_delete[*]}"
+
                   for image in "${images_to_delete[@]}"; do
                       echo "Deleting image: $image from $repo"
-                      gcloud artifacts docker images delete $repo@$image --quiet
+                      gcloud artifacts docker images delete "$repo@$image" --quiet
                       echo "Deleted image: $image from $repo successfully."
                   done
               else
                   echo "No images to delete in $repo. Keeping all ${#sorted_tags[@]} images."
               fi
           done
-          
+
           echo "Old image deletion process completed."
