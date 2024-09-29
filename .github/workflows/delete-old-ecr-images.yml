@@ -30,9 +30,7 @@ jobs:
           # Number of images to retain per repository
           keep=2
 
-          for repo in $repositories; do
-              # Extract repository name from the line
-              repo_name=$(echo "$repo" | awk '{print $1}')
+          for repo_name in $repositories; do
               echo "Processing repository: $repo_name"
 
               # Fetch image tags and push dates for the repository
