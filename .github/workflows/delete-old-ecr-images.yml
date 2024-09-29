@@ -22,15 +22,22 @@ jobs:
         run: |
           echo "Fetching repositories from ECR..."
           repositories=$(aws ecr describe-repositories --query 'repositories[*].[repositoryName, createdAt]' --output text | sort -k2 | awk '{print $1}')
+          echo "$repositories" > repositories.txt
           echo "Repositories fetched and sorted by creation time:"
           echo "$repositories"
 
       - name: Delete Old Images
         run: |
           # Number of images to retain per repository
-          keep=1
+          keep=2
 
-          for repo_name in $repositories; do
+          # Read repositories from the file
+          echo "Reading repositories from repositories.txt..."
+          repositories=$(<repositories.txt)
+
+          for repo in $repositories; do
+              # Extract repository name from the line
+              repo_name=$(echo "$repo" | awk '{print $1}')
               echo "Processing repository: $repo_name"
 
               # Fetch image tags and push dates for the repository
