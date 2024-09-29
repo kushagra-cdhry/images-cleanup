@@ -22,7 +22,6 @@ jobs:
         run: |
           echo "Fetching repositories from ECR..."
           repositories=$(aws ecr describe-repositories --query 'repositories[*].[repositoryName, createdAt]' --output text | sort -k2 | awk '{print $1}')
-          echo "$repositories" > repositories.txt
           echo "Repositories fetched and sorted by creation time:"
           echo "$repositories"
 
@@ -31,9 +30,9 @@ jobs:
           # Number of images to retain per repository
           keep=2
 
-          # Read repositories from the file
-          echo "Reading repositories from repositories.txt..."
-          repositories=$(<repositories.txt)
+          echo "$repositories from next step"
+
+          repositories=$repositories
 
           for repo in $repositories; do
               # Extract repository name from the line
