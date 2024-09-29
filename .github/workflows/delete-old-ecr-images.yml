@@ -28,7 +28,7 @@ jobs:
       - name: Delete Old Images
         run: |
           # Number of images to retain per repository
-          keep=2
+          keep=1
 
           for repo_name in $repositories; do
               echo "Processing repository: $repo_name"
