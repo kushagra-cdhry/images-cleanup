@@ -24,8 +24,12 @@ jobs:
           repositories=$(aws ecr describe-repositories --query 'repositories[*].[repositoryName, createdAt]' --output text | sort -k2 | awk '{print $1}')
           echo "Repositories fetched and sorted by creation time:"
           echo "$repositories"
+          
           # Set repositories as an environment variable
-          echo "repositories=$repositories" >> $GITHUB_ENV
+          # Convert the list to a newline-separated format
+          echo "repositories<<EOF" >> $GITHUB_ENV
+          echo "$repositories" >> $GITHUB_ENV
+          echo "EOF" >> $GITHUB_ENV
 
       - name: Delete Old Images
         run: |
@@ -35,9 +39,8 @@ jobs:
           # Access the repositories environment variable
           echo "Repositories from environment variable: $repositories"
 
-          for repo in $repositories; do
-              # Extract repository name from the line
-              repo_name=$(echo "$repo" | awk '{print $1}')
+          # Loop through each repository
+          for repo_name in $repositories; do
               echo "Processing repository: $repo_name"
 
               # Fetch image tags and push dates for the repository
