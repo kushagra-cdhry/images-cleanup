@@ -10,12 +10,19 @@ jobs:
     runs-on: ubuntu-latest  # Workflow kis environment pe chalega
 
     steps:
+      - name: Checkout repository
+        uses: actions/checkout@v2  # Repository ko checkout karega
+
       - name: Set up Cloud SDK
         uses: google-github-actions/setup-gcloud@v2
         with:
           project_id: ${{ secrets.GCP_PROJECT_ID }}  # GCP project ID ko GitHub Secrets se fetch karega
-          service_account_key: ${{ secrets.GCP_SA_KEY }}  # Service account key ko GitHub Secrets se fetch karega
-          export_default_credentials: true  # Default credentials set karega
+          install_components: 'beta'  # Optional: Agar aapko beta components chahiye
+          
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v0
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}  # Service account key ko GitHub Secrets se fetch karega
 
       - name: Run GCP image management script
         run: |
