@@ -1,80 +1,89 @@
-name: Delete Old Artifact Registry Images
+name: GCP Image Management
 
 on:
+  workflow_dispatch:  # Manual dispatch
   schedule:
-    - cron: '0 0 * * 0' # This will run every Sunday at midnight UTC
-  workflow_dispatch:
+    - cron: '0 0 * * 0'  # Har Sunday ko raat 12 baje chalega (UTC time)
 
 jobs:
-  delete-old-images:
-    runs-on: ubuntu-latest
+  manage-images:
+    runs-on: ubuntu-latest  # Workflow kis environment pe chalega
 
     steps:
-      - name: Set up Google Cloud SDK
+      - name: Set up Cloud SDK
         uses: google-github-actions/setup-gcloud@v2
         with:
-          service_account_key: ${{ secrets.GCP_SA_KEY }}
-          project_id: ${{ secrets.GCP_PROJECT_ID }}
-          export_default_credentials: true
+          project_id: ${{ secrets.GCP_PROJECT_ID }}  # GCP project ID ko GitHub Secrets se fetch karega
+          service_account_key: ${{ secrets.GCP_SA_KEY }}  # Service account key ko GitHub Secrets se fetch karega
+          export_default_credentials: true  # Default credentials set karega
 
-      - name: List Artifact Repositories
-        id: list_repositories
+      - name: Run GCP image management script
         run: |
-          echo "Fetching repositories from Artifact Registry..."
-          # Fetch repositories with their creation timestamp
-          repositories=$(gcloud artifacts repositories list --format='value(name, createTime)' | sort -k2)
-          echo "$repositories" > repositories.txt
-          echo "Repositories fetched in creation order: $repositories"
+          #!/bin/bash
+          PROJECT_ID="${{ secrets.GCP_PROJECT_ID }}"  # GitHub Secrets se project ID
+          KEEP=10
+          LOCATIONS=(${ { secrets.GCP_LOCATIONS }})  # GitHub Secrets se locations ko array mein convert karega
 
-      - name: Delete Old Images
-        run: |
-          echo "Reading repositories from the file..."
-          repositories=$(<repositories.txt)
-          keep=5
-          
-          for entry in $repositories; do
-              # Split the entry into repository name and creation timestamp
-              repo=$(echo "$entry" | awk '{print $1}')
-              echo "Processing repository: $repo"
+          for LOCATION in "${LOCATIONS[@]}"; do
+              REPOS=$(gcloud artifacts repositories list --project="$PROJECT_ID" \
+                      --location="$LOCATION" --format="value(name)" --quiet 2>/dev/null)
 
-              # Fetch image tags and their last updated timestamps
-              images=$(gcloud artifacts docker images list $repo --format='value(tags.lastUpdated,tags.tags)' | sort -k1 -r)
-              echo "Images fetched for $repo: $images"
-
-              if [ -z "$images" ]; then
-                  echo "No images found in $repo. Skipping deletion."
+              if [ $? -ne 0 ]; then
+                  echo "Error: Unable to list repositories for location $LOCATION."
                   continue
               fi
 
-              # Reset the associative array for each repository
-              unset image_dates
-              declare -A image_dates
+              if [ -n "$REPOS" ]; then
+                  echo "Repositories Found in $LOCATION:"
+                  echo "$REPOS" | while read -r REPO; do
+                      echo "  - $REPO"
+                      IMAGE_PATH="$LOCATION-docker.pkg.dev/$PROJECT_ID/$REPO"
 
-              # Populate the associative array with image tags and their last updated dates
-              while read -r updated_at tags; do
-                  for tag in $tags; do
-                      image_dates["$tag"]="$updated_at"
-                  done
-              done <<< "$images"
+                      IMAGES=$(gcloud artifacts docker images list "$IMAGE_PATH" \
+                              --format="value(IMAGE, updateTime)" | sort -k2 -r)
 
-              # Get the tags sorted by their last updated date
-              sorted_tags=($(for tag in "${!image_dates[@]}"; do echo "$tag ${image_dates[$tag]}"; done | sort -k2 -r | awk '{print $1}'))
-              echo "Sorted images for $repo: ${sorted_tags[*]}"
+                      if [ $? -eq 0 ] && [ -n "$IMAGES" ]; then
+                          echo "    Images found in $REPO:"
+                          IMAGE_ARRAY=()
+                          while read -r IMAGE UPDATE_TIME; do
+                              IMAGE_NAME=$(basename "$IMAGE")
+                              if [[ ! " ${IMAGE_ARRAY[@]} " =~ " ${IMAGE_NAME} " ]]; then
+                                  IMAGE_ARRAY+=("$IMAGE_NAME")
+                              fi
+                          done <<< "$IMAGES"
 
-              # Check if there are more images than we want to keep
-              if (( ${#sorted_tags[@]} > keep )); then
-                  echo "Deleting old images from $repo..."
-                  images_to_delete=("${sorted_tags[@]:keep}")
-                  echo "Images to be deleted: ${images_to_delete[*]}"
+                          IMAGE_COUNT=${#IMAGE_ARRAY[@]}
+                          echo "    Unique images found: $IMAGE_COUNT"
 
-                  for image in "${images_to_delete[@]}"; do
-                      echo "Deleting image: $image from $repo"
-                      gcloud artifacts docker images delete "$repo@$image" --quiet
-                      echo "Deleted image: $image from $repo successfully."
+                          if [ "$IMAGE_COUNT" -gt "$KEEP" ]; then
+                              IMAGES_TO_DELETE=("${IMAGE_ARRAY[@]:$KEEP}")
+                              IMAGE_ARRAY=("${IMAGE_ARRAY[@]:0:$KEEP}")
+
+                              echo "      Retained Images:"
+                              for IMAGE_NAME in "${IMAGE_ARRAY[@]}"; do
+                                  echo "      - $IMAGE_NAME"
+                              done
+
+                              echo "      Images to be deleted:"
+                              for IMAGE_NAME in "${IMAGES_TO_DELETE[@]}"; do
+                                  echo "      - $IMAGE_NAME"
+                              done
+
+                              for IMAGE_NAME in "${IMAGES_TO_DELETE[@]}"; do
+                                  echo "      Deleting $IMAGE_NAME..."
+                                  gcloud artifacts docker images delete "$IMAGE_PATH/$IMAGE_NAME" --quiet
+                              done
+                          else
+                              echo "    No images to delete. Found $IMAGE_COUNT unique images:"
+                              for IMAGE_NAME in "${IMAGE_ARRAY[@]}"; do
+                                  echo "      - $IMAGE_NAME"
+                              done
+                          fi
+                      else
+                          echo "    No images found in $REPO."
+                      fi
                   done
               else
-                  echo "No images to delete in $repo. Keeping all ${#sorted_tags[@]} images."
+                  echo "    No repositories found in $LOCATION."
               fi
           done
-
-          echo "Old image deletion process completed."
