@@ -20,7 +20,7 @@ jobs:
           install_components: 'beta'  # Optional: Agar aapko beta components chahiye
           
       - name: Authenticate to Google Cloud
-        uses: google-github-actions/auth@v0
+        uses: google-github-actions/auth@v1  # Updated to latest version
         with:
           credentials_json: ${{ secrets.GCP_SA_KEY }}  # Service account key ko GitHub Secrets se fetch karega
 
@@ -29,7 +29,7 @@ jobs:
           #!/bin/bash
           PROJECT_ID="${{ secrets.GCP_PROJECT_ID }}"  # GitHub Secrets se project ID
           KEEP=10
-          LOCATIONS=(${ { secrets.GCP_LOCATIONS }})  # GitHub Secrets se locations ko array mein convert karega
+          LOCATIONS=($(echo "${{ secrets.GCP_LOCATIONS }}" | tr ',' ' '))  
 
           for LOCATION in "${LOCATIONS[@]}"; do
               REPOS=$(gcloud artifacts repositories list --project="$PROJECT_ID" \
