@@ -13,8 +13,7 @@ jobs:
       - name: Set up Cloud SDK
         uses: google-github-actions/setup-gcloud@v2
         with:
-          project_id: ${{ secrets.GCP_PROJECT_ID }} 
-          install_components: 'beta' 
+          project_id: ${{ secrets.GCP_PROJECT_ID }}  
           
       - name: Authenticate to Google Cloud
         uses: google-github-actions/auth@v1 
@@ -68,7 +67,7 @@ jobs:
 
                       for VERSION_NAME in $(for key in "${!VERSIONS[@]}"; do echo "$key ${VERSIONS[$key]}"; done | sort -k2,2 | awk '{print $1}' | head -n "$VERSIONS_TO_DELETE"); do
                           echo "      Deleting Version: $VERSION_NAME"
-                          
+                          gcloud artifacts versions delete "$VERSION_NAME" --location=$LOCATION --repository=$REPO_NAME --package="$PACKAGE_NAME" --delete-tags --quiet
                       done
                   else
                       echo "No versions to delete, $VERSION_COUNT versions found."
