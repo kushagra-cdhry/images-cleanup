@@ -1,9 +1,9 @@
 name: GCP Image Management
 
 on:
-  workflow_dispatch:  # Manual dispatch
+  workflow_dispatch:
   schedule:
-    - cron: '0 0 * * 0'  # Every Sunday at midnight (UTC)
+    - cron: '0 0 * * 0'
 
 jobs:
   manage-images:
@@ -24,43 +24,34 @@ jobs:
       - name: Run GCP image management script
         run: |
           #!/bin/bash
-
-          # Project ID and location from GitHub Secrets
-          PROJECT_ID="${{ secrets.GCP_PROJECT_ID }}"  # GitHub Secrets se project ID
+          PROJECT_ID="${{ secrets.GCP_PROJECT_ID }}"
           LOCATION="us-east1"
           MAX_VERSIONS=15
 
-          # List repositories and store them in a temporary file for sorting
           declare -A REPOSITORIES
 
-          # Fetch repositories and populate the associative array
           while IFS= read -r REPO_INFO; do
               REPO_NAME=$(echo "$REPO_INFO" | awk '{print $1}')
               REPO_UPDATE_TIME=$(echo "$REPO_INFO" | awk '{print $2}')
               REPOSITORIES["$REPO_NAME"]="$REPO_UPDATE_TIME"
           done < <(gcloud artifacts repositories list --location=$LOCATION --format="value(name, updateTime)" | sort -k2,2r)
 
-          # Print and process all repositories sorted by update time
           echo "Repositories:"
           for REPO_NAME in $(for key in "${!REPOSITORIES[@]}"; do echo "$key ${REPOSITORIES[$key]}"; done | sort -k2,2r | awk '{print $1}'); do
               echo "Processing Repository: $REPO_NAME"
 
-              # Declare an associative array for packages in the current repository
               declare -A PACKAGES
 
-              # Fetch packages and populate the associative array
               while IFS= read -r PACKAGE_INFO; do
                   PACKAGE_NAME=$(echo "$PACKAGE_INFO" | awk '{print $1}')
                   PACKAGE_UPDATE_TIME=$(echo "$PACKAGE_INFO" | awk '{print $2}')
                   PACKAGES["$PACKAGE_NAME"]="$PACKAGE_UPDATE_TIME"
               done < <(gcloud artifacts packages list --location=$LOCATION --repository=$REPO_NAME --format="value(name, updateTime)" | sort -k2,2r)
 
-              # Print and process all packages in the current repository sorted by update time
               echo "  Packages:"
               for PACKAGE_NAME in $(for key in "${!PACKAGES[@]}"; do echo "$key ${PACKAGES[$key]}"; done | sort -k2,2r | awk '{print $1}'); do
                   echo "  Processing Package: $PACKAGE_NAME"
 
-                  # List versions in the current package and store them in an associative array
                   declare -A VERSIONS
                   while IFS= read -r VERSION_INFO; do
                       VERSION_NAME=$(echo "$VERSION_INFO" | awk '{print $1}')
@@ -68,30 +59,23 @@ jobs:
                       VERSIONS["$VERSION_NAME"]="$VERSION_UPDATE_TIME"
                   done < <(gcloud artifacts versions list --location=$LOCATION --repository=$REPO_NAME --package="$PACKAGE_NAME" --format="value(name, updateTime)" | sort -k2,2r)
 
-                  # Print and process all versions in the current package sorted by update time
                   echo "    Versions:"
                   VERSION_COUNT=${#VERSIONS[@]}
 
                   if (( VERSION_COUNT > MAX_VERSIONS )); then
-                      echo "    $VERSION_COUNT versions found, deleting extra versions..."
+                      echo "$VERSION_COUNT versions found, deleting extra versions..."
                       VERSIONS_TO_DELETE=$(( VERSION_COUNT - MAX_VERSIONS ))
 
-                      # Sort versions and delete the oldest ones
                       for VERSION_NAME in $(for key in "${!VERSIONS[@]}"; do echo "$key ${VERSIONS[$key]}"; done | sort -k2,2 | awk '{print $1}' | head -n "$VERSIONS_TO_DELETE"); do
                           echo "      Deleting Version: $VERSION_NAME"
-                          gcloud artifacts versions delete "$VERSION_NAME" --location=$LOCATION --repository=$REPO_NAME --package="$PACKAGE_NAME" --quiet
+                          
                       done
                   else
-                      echo "    No versions to delete, $VERSION_COUNT versions found."
+                      echo "No versions to delete, $VERSION_COUNT versions found."
                   fi
 
-                  # Unset the versions array to free up memory
                   unset VERSIONS
               done
-
-              # Unset the packages array to free up memory
               unset PACKAGES
           done
-
-          # Unset the repositories array to free up memory
           unset REPOSITORIES
