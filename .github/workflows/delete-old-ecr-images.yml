@@ -36,49 +36,40 @@ jobs:
           # Number of images to retain per repository
           keep=0
 
-          # Access the repositories environment variable
           echo "Repositories from environment variable: $repositories"
 
-          # Loop through each repository
           for repo_name in $repositories; do
               echo "Processing repository: $repo_name"
 
-              # Fetch image tags and push dates for the repository
               images=$(aws ecr describe-images --repository-name $repo_name \
                       --query 'imageDetails[*].[imageTags[0], imagePushedAt]' \
                       --output text | sort -k2 -r)
               
               echo "Images fetched for $repo_name: $images"
 
-              # Skip if no images are found
               if [ -z "$images" ]; then
                   echo "No images found in $repo_name. Skipping."
                   continue
               fi
 
-              # Clear previous data for each repo
               unset image_dates
               declare -A image_dates
 
-              # Populate associative array with image tags and push dates
               while read -r tag pushed_at; do
                   image_dates["$tag"]="$pushed_at"
               done <<< "$images"
 
-              # Sort images by push dates (most recent first)
               sorted_tags=($(for tag in "${!image_dates[@]}"; do 
                                 echo "$tag ${image_dates[$tag]}"; 
                              done | sort -k2 -r | awk '{print $1}'))
               
               echo "Sorted images for $repo_name: ${sorted_tags[*]}"
 
-              # Check if we have more images than we need to keep
               if (( ${#sorted_tags[@]} > keep )); then
                   # Find old images to delete
                   images_to_delete=("${sorted_tags[@]:keep}")
                   echo "Deleting old images from $repo_name: ${images_to_delete[*]}"
-
-                  # Delete each old image
+                  
                   for image in "${images_to_delete[@]}"; do
                       echo "Deleting image: $image from $repo_name"
                       aws ecr batch-delete-image --repository-name $repo_name --image-ids imageTag=$image
